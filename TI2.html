@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Encryptor</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input, textarea, button { width: 100%; margin: 10px 0; }
+        textarea { height: 100px; }
+    </style>
+</head>
+<body>
+    <button onclick="openFile()">Выбрать файл</button>
+
+    <label for="tb_sourceText">Исходный файл:</label>
+    <textarea id="tb_sourceText" rows="4" readonly></textarea>
+
+    <label for="tb_lfsr">Введите начальное состояние (29 бит):</label>
+    <input type="text" id="tb_lfsr" maxlength="29" oninput="updateCount()">
+    <small>Длина: <span id="count">0</span></small>
+
+    <button onclick="execute()">Зашифровать</button>
+
+    <label for="tb_key">Сгенерированный ключ:</label>
+    <textarea id="tb_key" rows="4" readonly></textarea>
+
+    <label for="tb_result">Результат:</label>
+    <textarea id="tb_result" rows="4" readonly></textarea>
+
+    <button onclick="saveFile()">Сохранить в файл</button>
+
+<script>
+    const RegLen = 29;
+    const BitsInByte = 8;
+    const bits = [2, 29];
+    let fileBytes = new Uint8Array(0);
+    let encryptedData = new Uint8Array(0);
+    let originalFileName = '';
+    let originalFileType = '';
+
+    function openFile() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Сохраняем метаданные файла
+            originalFileName = file.name;
+            originalFileType = file.type;
+            
+            const reader = new FileReader();
+            reader.onload = e => {
+                const arrayBuffer = e.target.result;
+                fileBytes = new Uint8Array(arrayBuffer);
+                document.getElementById('tb_sourceText').value = bytesToBits(fileBytes);
+            };
+            reader.readAsArrayBuffer(file);
+        };
+        input.click();
+    }
+
+    function updateCount() {
+        const lfsr = document.getElementById('tb_lfsr').value;
+        document.getElementById('count').textContent = lfsr.replace(/[^01]/g, '').length;
+    }
+
+    function execute() {
+        const lfsrInput = document.getElementById('tb_lfsr').value.replace(/[^01]/g, '');
+        if (lfsrInput.length !== RegLen) {
+            alert("Нужно ровно 29 бит!");
+            return;
+        }
+
+        const key = generateKey(lfsrInput, fileBytes.length);
+        encryptedData = encrypt(fileBytes, key);
+
+        document.getElementById('tb_key').value = bytesToBits(key);
+        document.getElementById('tb_result').value = bytesToBits(encryptedData);
+    }
+
+    function generateKey(seed, bytesLength) {
+        const state = seed.split('').map(Number);
+        const key = new Uint8Array(bytesLength);
+        let bitBuffer = '';
+
+        for (let i = 0; i < bytesLength * 8; i++) {
+            bitBuffer += state[0];
+            
+            if (bitBuffer.length === 8) {
+                key[Math.floor(i/8)] = parseInt(bitBuffer, 2);
+                bitBuffer = '';
+            }
+
+            const newBit = bits.reduce((acc, pos) => acc ^ state[RegLen - pos], 0);
+            state.push(newBit);
+            state.shift();
+        }
+        return key;
+    }
+
+    function encrypt(data, key) {
+        const result = new Uint8Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+            result[i] = data[i] ^ key[i];
+        }
+        return result;
+    }
+
+    function bytesToBits(buffer) {
+        return Array.from(buffer, b => b.toString(2).padStart(8, '0')).join('');
+    }
+
+    function saveFile() {
+        if (encryptedData.length === 0) {
+            alert("Сначала зашифруйте файл!");
+            return;
+        }
+        
+        // Формируем имя файла с суффиксом _encrypted
+        const fileNameParts = originalFileName.split('.');
+        const ext = fileNameParts.length > 1 ? fileNameParts.pop() : '';
+        const newFileName = fileNameParts.join('.') + '_encrypted' + (ext ? `.${ext}` : '');
+        
+        // Создаем Blob с оригинальным MIME-типом
+        const blob = new Blob([encryptedData], { 
+            type: originalFileType || 'application/octet-stream'
+        });
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = newFileName;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+</script>
+</body>
+</html>
